@@ -11,22 +11,26 @@ names:
 # These are consumed by scripts/train_fire_detection.py, not by Ultralytics
 # when this file is supplied directly to the CLI.
 training:
-  model: yolo26m.pt
-  epochs: 300
-  lr0: 0.0005
-  imgsz: 1400
+  epochs: 250
+  lr0: 0.005
+  lrf: 0.01
+  imgsz: 640
   batch: 2
   workers: 2
   optimizer: auto
   patience: 30
   seed: 0
   # Keep geometry and flame color close to real camera footage.
-  auto_augment: randaugment
   mosaic: 0.1
   close_mosaic: 20
+  fliplr: 0.5
+  flipub: 0.2
+  scale: 0.3
+  degrees: 60  # random rotation
+  translate: 0.15
   hsv_h: 0.01
-  hsv_s: 0.3
-  hsv_v: 0.2
+  hsv_s: 0.7
+  hsv_v: 0.35
   erasing: 0.0
-  name: fire_detection_300_ws
+  name: fire_detection_250_ws
   project: fire_case_detection
