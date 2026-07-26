@@ -28,5 +28,5 @@ training:
   hsv_s: 0.3
   hsv_v: 0.2
   erasing: 0.0
-  name: run_fire_detection_300
+  name: fire_detection_300_ws
   project: fire_case_detection
