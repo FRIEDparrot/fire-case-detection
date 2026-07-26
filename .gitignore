@@ -1,4 +1,4 @@
-yolo26/images
-yolo26/labels
+images
+labels
+runs
 yolo26/runs
-yolo26/scripts/runs

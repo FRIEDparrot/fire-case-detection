@@ -1,40 +1,40 @@
-"""Convert the fire COCO annotations to labels consumed by Ultralytics YOLO."""
-
-import json
+"""Build a leakage-free YOLO train/validation dataset from COCO annotations."""
 import random
 import shutil
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-COCO_JSON = ROOT / "train_coco.json"
-IMAGE_DIR = ROOT / "images" / "train"
-LABEL_DIR = ROOT / "labels" / "train"
-TRAIN_MANIFEST = ROOT / "coco_train_dataset.txt"
-VAL_MANIFEST = ROOT / "coco_val_dataset.txt"
-VALIDATION_FRACTION = 0.15
-SPLIT_SEED = 0
+from utils import COCO_JSON, IMAGE_DIR, LABEL_DIR, load_json
 
 
-def load_json(path: Path) -> dict:
-    with path.open(encoding="utf-8") as file:
-        return json.load(file)
+VALIDATION_FRACTION = 0.2
 
 
-def write_yolo_labels(coco: dict) -> int:
-    """Recreate ``labels/train`` directly from the project's COCO annotations."""
-    if LABEL_DIR.exists():
-        shutil.rmtree(LABEL_DIR)
-    LABEL_DIR.mkdir(parents=True, exist_ok=True)
+def write_yolo_labels(coco: dict, images: list[dict], label_directory: Path) -> int:
+    """Write YOLO labels for ``images`` into a cleared ``label_directory``.
 
-    images = {image["id"]: image for image in coco["images"]}
+    Args:
+        coco: COCO annotation data containing image metadata and bounding boxes.
+        images: The split-specific COCO image entries to label.
+        label_directory: Destination directory for the generated ``.txt`` labels.
+    """
+    if label_directory.exists():
+        shutil.rmtree(label_directory)
+    label_directory.mkdir(parents=True, exist_ok=True)
+
+    images_by_id = {image["id"]: image for image in images}
     class_ids = {category["id"]: index for index, category in enumerate(coco["categories"])}
-    labels: dict[Path, list[tuple[float, float, float, float, float]]] = {}
+    labels: dict[Path, list[tuple[float, float, float, float, float]]] = {
+        label_directory / Path(image["file_name"]).with_suffix(".txt"): []
+        for image in images
+    }
 
     for annotation in coco["annotations"]:
         if annotation.get("iscrowd", False):
             continue
-        image = images[annotation["image_id"]]
+        image = images_by_id.get(annotation["image_id"])
+        if image is None:
+            continue
+
         x, y, width, height = annotation["bbox"]
         if width <= 0 or height <= 0:
             continue
@@ -46,10 +46,9 @@ def write_yolo_labels(coco: dict) -> int:
             width / image["width"],
             height / image["height"],
         )
-        label_path = LABEL_DIR / Path(image["file_name"]).with_suffix(".txt")
-        image_labels = labels.setdefault(label_path, [])
-        if box not in image_labels:
-            image_labels.append(box)
+        label_path = label_directory / Path(image["file_name"]).with_suffix(".txt")
+        if box not in labels[label_path]:
+            labels[label_path].append(box)
 
     for label_path, boxes in labels.items():
         label_path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,58 +59,57 @@ def write_yolo_labels(coco: dict) -> int:
     return sum(len(boxes) for boxes in labels.values())
 
 
-def source_sequence(image: dict) -> str:
-    """Use the filename prefix before its trailing frame number as source ID."""
-    return Path(image["file_name"]).stem.rsplit("_", 1)[0]
+def split_images(images: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Hold out complete source sequences without exceeding the validation target.
 
-
-def split_images(images: list[dict], positive_image_ids: set[int]) -> tuple[list[dict], list[dict]]:
-    """Randomly hold out each collection's positive and negative images with a fixed seed."""
-    strata: dict[tuple[str, bool], list[dict]] = {}
-    for image in images:
-        key = (source_sequence(image), image["id"] in positive_image_ids)
-        strata.setdefault(key, []).append(image)
-
-    random_generator = random.Random(SPLIT_SEED)
-    val_image_ids: set[int] = set()
-    for images_in_stratum in strata.values():
-        random_generator.shuffle(images_in_stratum)
-        val_count = round(len(images_in_stratum) * VALIDATION_FRACTION)
-        if len(images_in_stratum) > 1:
-            val_count = min(max(val_count, 1), len(images_in_stratum) - 1)
-        val_image_ids.update(image["id"] for image in images_in_stratum[:val_count])
-
-    val_images = [image for image in images if image["id"] in val_image_ids]
-    train_images = [image for image in images if image["id"] not in val_image_ids]
+    Args:
+        images: All COCO image entries to partition by source sequence.
+    """
+    remaining = round(len(images) * VALIDATION_FRACTION)
+    rng = random.Random(42)  # use a random source
+    train_images = images  # use all images as the train images
+    val_images = rng.sample(images, remaining)
     return train_images, val_images
 
 
-def write_manifest(images: list[dict], destination: Path) -> None:
-    missing = [image["file_name"] for image in images if not (IMAGE_DIR / image["file_name"]).is_file()]
-    if missing:
-        raise FileNotFoundError(f"{len(missing)} COCO images are missing from {IMAGE_DIR}: {missing[:5]}")
+def copy_images(images: list[dict], source_directory: Path, destination: Path) -> None:
+    """Copy a split's images into a cleared destination directory.
 
-    with destination.open("w", encoding="utf-8", newline="\n") as file:
-        for image in images:
-            # The './' makes Ultralytics resolve each entry relative to this
-            # manifest, preserving the /images/ -> /labels/ path mapping.
-            file.write(f"./images/train/{image['file_name']}\n")
+    Args:
+        images: COCO image entries included in this split.
+        source_directory: Directory containing the unsplit source image files.
+        destination: Directory where this split's image files will be copied.
+    """
+    missing = [image["file_name"] for image in images if not (source_directory / image["file_name"]).is_file()]
+    if missing:
+        raise FileNotFoundError(f"{len(missing)} COCO images are missing from {source_directory}: {missing[:5]}")
+
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    for image in images:
+        source = source_directory / image["file_name"]
+        target = destination / image["file_name"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
 
 
 def main() -> None:
+    """Create paired train/validation image and label directories."""
     coco = load_json(COCO_JSON)
-    annotation_count = write_yolo_labels(coco)
-    positive_image_ids = {annotation["image_id"] for annotation in coco["annotations"]}
-    train_images, val_images = split_images(coco["images"], positive_image_ids)
-    write_manifest(train_images, TRAIN_MANIFEST)
-    write_manifest(val_images, VAL_MANIFEST)
+    source_image_dir = IMAGE_DIR / "all-images"
+    train_images, val_images = split_images(coco["images"])
 
-    print(f"Created {TRAIN_MANIFEST.name} with {len(train_images)} images.")
+    copy_images(train_images, source_image_dir, IMAGE_DIR / "train")
+    copy_images(val_images, source_image_dir, IMAGE_DIR / "val")
+    train_box_count = write_yolo_labels(coco, train_images, LABEL_DIR / "train")
+    val_box_count = write_yolo_labels(coco, val_images, LABEL_DIR / "val")
+
+    print(f"Created images/train with {len(train_images)} images and {train_box_count} fire boxes.")
     print(
-        f"Created {VAL_MANIFEST.name} with {len(val_images)} images "
-        f"({len(val_images) / len(coco['images']):.1%}, random seed {SPLIT_SEED})."
+        f"Created images/val with {len(val_images)} images and {val_box_count} fire boxes "
+        f"({len(val_images) / len(coco['images']):.1%} validation)."
     )
-    print(f"Created {LABEL_DIR.relative_to(ROOT)} with {annotation_count} fire boxes in {len(list(LABEL_DIR.glob('*.txt')))} files.")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,9 @@
 import os
-from pathlib import Path
 from ultralytics import YOLO
 from ultralytics.utils import YAML
+from utils import ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
-DATASET_YAML = ROOT / "dataset.yaml"
-
-os.chdir(ROOT)
+DATASET_YAML = ROOT / "yolo26" / "dataset.yaml"
 
 def main() -> None:
     config = YAML.load(DATASET_YAML)
