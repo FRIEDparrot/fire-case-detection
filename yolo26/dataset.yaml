@@ -16,7 +16,7 @@ training:
   lr0: 0.005
   lrf: 0.01
   fliplr: 0.5
-  flipub: 0.2
+  flipud: 0.2
   scale: 0.3
   degrees: 15.0
   imgsz: 640
