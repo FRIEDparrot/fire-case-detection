@@ -7,10 +7,11 @@ DATASET_YAML = ROOT / "yolo26" / "dataset.yaml"
 
 def main() -> None:
     model = YOLO("yolo26m.pt")
-    model.train(data=DATASET_YAML)
+    model.train(data=DATASET_YAML)  # model.train(data=str(DATASET_YAML), **train_args)
     config = YAML.load(DATASET_YAML)
     train_args = dict(config["training"])
-    model.train(data=str(DATASET_YAML), **train_args)
+    print("Train args:", train_args)
+
 
 if __name__ == "__main__":
     main()
