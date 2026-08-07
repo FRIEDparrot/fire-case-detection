@@ -6,16 +6,14 @@ from ultralytics.utils import YAML
 DATASET_YAML = ROOT / "yolo26" / "dataset.yaml"
 
 def main() -> None:
-    model = YOLO("yolo26m.pt")
-    model.train(
-        data=DATASET_YAML,
-        name="fire_detection_250_ws_pc_simulation",
-        project="Ultralytics",
-    )  # model.train(data=str(DATASET_YAML), **train_args)
+    model = YOLO("yolo26l.pt")
     config = YAML.load(DATASET_YAML)
     train_args = dict(config["training"])
+    model.train(
+        data=DATASET_YAML,
+        **train_args,
+    )  # model.train(data=str(DATASET_YAML), **train_args)
     print("Train args:", train_args)
-
 
 if __name__ == "__main__":
     main()
