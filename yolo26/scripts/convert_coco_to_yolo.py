@@ -60,15 +60,16 @@ def write_yolo_labels(coco: dict, images: list[dict], label_directory: Path) -> 
 
 
 def split_images(images: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Hold out complete source sequences without exceeding the validation target.
+    """Create a deterministic, non-overlapping train/validation image split.
 
     Args:
-        images: All COCO image entries to partition by source sequence.
+        images: All COCO image entries to partition.
     """
     remaining = round(len(images) * VALIDATION_FRACTION)
-    rng = random.Random(42)  # use a random source
-    train_images = images  # use all images as the train images
-    val_images = rng.sample(images, remaining)
+    rng = random.Random(42)  # deterministic split for reproducibility
+    val_indices = set(rng.sample(range(len(images)), remaining))
+    val_images = [image for index, image in enumerate(images) if index in val_indices]
+    train_images = [image for index, image in enumerate(images) if index not in val_indices]
     return train_images, val_images
 
 
